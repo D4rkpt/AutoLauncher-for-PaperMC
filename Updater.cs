@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 
 namespace PaperAutoUpdater
 {
+    // Handles version detection, communication with the PaperMC API, and downloading updates
     public static class Updater
     {
         private const string UserAgent = "AutoLauncher-for-Paper/2.1 (Contact: Discord Kranivox)";
@@ -18,13 +19,14 @@ namespace PaperAutoUpdater
             SharedClient.DefaultRequestHeaders.Add("User-Agent", UserAgent);
         }
 
-        // Validates if the version exists on PaperMC and returns its current channel status
+        // Validates if the specified version exists on the PaperMC API and retrieves its release channel (e.g., default, experimental)
         public static async Task<(bool isValid, string channel)> ValidateVersionAndGetChannelAsync(string version)
         {
             var (build, _, channel) = await GetLatestBuildInfoAsync(version);
-            return (build != -1, channel);
+            return (build != -1, channel); // Returns true if a valid build number was found
         }
 
+        // The main update sequence executed before server launch
         public static async Task RunUpdateAndLaunchSequence()
         {
             string mcVersion = ConfigManager.Config.TargetVersion;
@@ -34,7 +36,7 @@ namespace PaperAutoUpdater
                 Console.ForegroundColor = ConsoleColor.Yellow;
                 Console.WriteLine("⚠️  [WARNING] Could not determine the Minecraft version from '.paper' or 'versions' folders.");
                 Console.ResetColor();
-                Engine.RunServer();
+                Engine.RunServer(); // Launch blindly if version is unknown
                 return;
             }
 
@@ -51,18 +53,29 @@ namespace PaperAutoUpdater
                 {
                     string expectedJarName = $"paper-{mcVersion}-{latestBuild}.jar";
 
+                    // If the expected JAR does not exist, an update is required
                     if (!File.Exists(expectedJarName))
                     {
                         Console.ForegroundColor = ConsoleColor.Cyan;
                         Console.WriteLine($"🌐 [INFO] New build ({latestBuild}) found! Downloading automatically...");
                         Console.ResetColor();
 
+                        // Clean up any old paper jars to save disk space
                         foreach (var file in Directory.GetFiles(Directory.GetCurrentDirectory(), "paper-*.jar"))
                         {
-                            File.Delete(file);
-                            Console.ForegroundColor = ConsoleColor.DarkGray;
-                            Console.WriteLine($"🗑️  [CLEANUP] Old file deleted: {Path.GetFileName(file)}");
-                            Console.ResetColor();
+                            try
+                            {
+                                File.Delete(file);
+                                Console.ForegroundColor = ConsoleColor.DarkGray;
+                                Console.WriteLine($"🗑️  [CLEANUP] Old file deleted: {Path.GetFileName(file)}");
+                                Console.ResetColor();
+                            }
+                            catch (Exception ex)
+                            {
+                                Console.ForegroundColor = ConsoleColor.Yellow;
+                                Console.WriteLine($"⚠️  [WARNING] Could not delete old file {Path.GetFileName(file)}: {ex.Message}");
+                                Console.ResetColor();
+                            }
                         }
 
                         await DownloadFileAsync(downloadUrl, expectedJarName);
@@ -77,7 +90,7 @@ namespace PaperAutoUpdater
                         Console.WriteLine("✅ [INFO] The server is already running the latest available version.");
                         Console.ResetColor();
                     }
-                    Engine.RunServer(expectedJarName);
+                    Engine.RunServer(expectedJarName); // Start the server using the verified/updated JAR
                     return;
                 }
                 else
@@ -94,15 +107,16 @@ namespace PaperAutoUpdater
                 Console.ResetColor();
             }
 
-            Engine.RunServer();
+            Engine.RunServer(); // Start the server with whatever is available
         }
 
-        // Allows the UI to fetch the currently installed version for comparison
+        // Allows the UI to fetch the currently installed version for comparison (e.g., during upgrades/downgrades)
         public static string? GetInstalledVersion()
         {
-            return GetVersionFromPaperHistory() ?? GetVersionFromFolder();
+            return GetVersionFromPaperHistory() ?? GetVersionFromFolder(); // Tries history JSON first, falls back to folder scanning
         }
 
+        // Attempts to extract the exact installed Minecraft version from Paper's internal history file
         private static string? GetVersionFromPaperHistory()
         {
             // ... (keep internal logic unchanged)
@@ -118,6 +132,7 @@ namespace PaperAutoUpdater
                         if (doc.RootElement.TryGetProperty("currentVersion", out JsonElement currentVersionElement))
                         {
                             string? currentVersion = currentVersionElement.GetString();
+                            // Extracts the version number from string formats like 'git-Paper-xxx (MC: 1.20.4)'
                             if (!string.IsNullOrEmpty(currentVersion) && currentVersion.Contains("(MC: "))
                             {
                                 int startIndex = currentVersion.IndexOf("(MC: ") + 5;
@@ -133,6 +148,7 @@ namespace PaperAutoUpdater
             return null;
         }
 
+        // Fallback method: Scans the 'versions' folder to guess the installed version based on directory names
         private static string? GetVersionFromFolder()
         {
             string versionsPath = Path.Combine(Directory.GetCurrentDirectory(), "versions");
@@ -154,7 +170,7 @@ namespace PaperAutoUpdater
                     if (maxVer == null || currentVer > maxVer)
                     {
                         maxVer = currentVer;
-                        highestVersion = folderName;
+                        highestVersion = folderName; // Keeps track of the highest numerical version found
                     }
                 }
             }
@@ -163,6 +179,7 @@ namespace PaperAutoUpdater
             return highestVersion ?? new DirectoryInfo(directories[0]).Name;
         }
 
+        // Queries the PaperMC API to retrieve the latest build number, download URL, and release channel for a given version
         private static async Task<(int, string?, string)> GetLatestBuildInfoAsync(string version)
         {
             try
@@ -188,6 +205,7 @@ namespace PaperAutoUpdater
                 string? bestDownloadUrl = null;
                 string latestChannel = "UNKNOWN";
 
+                // Iterates through all builds to find the latest one (highest ID)
                 foreach (var build in builds)
                 {
                     // A tua API usa "id" para a build e não "build"
@@ -217,11 +235,52 @@ namespace PaperAutoUpdater
         }
 
         // OPTIMIZATION: Streams the download directly to the SSD to prevent RAM usage spikes
+        // Prevents loading the entire multi-megabyte JAR file into memory before saving it
         private static async Task DownloadFileAsync(string url, string fileName)
         {
             using Stream stream = await SharedClient.GetStreamAsync(url);
             using FileStream fileStream = new FileStream(fileName, FileMode.Create, FileAccess.Write, FileShare.None);
-            await stream.CopyToAsync(fileStream);
+            await stream.CopyToAsync(fileStream); // Directly buffers chunks from the network to the disk
+        }
+
+        // Checks GitHub for a new release of the launcher itself
+        public static async Task CheckForLauncherUpdatesAsync()
+        {
+            try
+            {
+                string apiUrl = "https://api.github.com/repos/D4rkpt/AutoLauncher-for-PaperMC/releases/latest";
+                using var response = await SharedClient.GetAsync(apiUrl);
+
+                if (response.IsSuccessStatusCode)
+                {
+                    string json = await response.Content.ReadAsStringAsync();
+                    using JsonDocument doc = JsonDocument.Parse(json);
+
+                    // Extrai a tag da versão mais recente no GitHub (remove o "v" se usares "v2.2" nas tuas releases)
+                    string? latestTag = doc.RootElement.GetProperty("tag_name").GetString();
+                    string latestVersion = latestTag?.Replace("v", "") ?? "";
+
+                    // A tua versão atual programada
+                    string currentVersion = "2.2.1";
+
+                    // Se a versão for diferente da atual, avisa o utilizador
+                    if (!string.IsNullOrEmpty(latestVersion) && latestVersion != currentVersion)
+                    {
+                        Console.ForegroundColor = ConsoleColor.Magenta;
+                        Console.WriteLine("\n✨ [UPDATE AVAILABLE] A new version of AutoLauncher is available!");
+                        Console.WriteLine($"✨ Current version: {currentVersion}  |  Latest version: {latestVersion}");
+                        Console.WriteLine($"✨ Download here: https://github.com/D4rkpt/AutoLauncher-for-PaperMC/releases/latest\n");
+                        Console.ResetColor();
+
+                        // Dá 4 segundos para o utilizador conseguir ler a mensagem antes de o servidor arrancar
+                        await Task.Delay(4000);
+                    }
+                }
+            }
+            catch
+            {
+                // Falha silenciosamente se o utilizador estiver sem internet, para não interromper o arranque
+            }
         }
     }
 }

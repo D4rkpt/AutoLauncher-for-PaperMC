@@ -8,22 +8,26 @@ using System.Threading.Tasks;
 
 namespace PaperAutoUpdater
 {
+    // The core execution engine responsible for validating the environment and running external processes
     public static class Engine
     {
-        private static List<Regex> CompiledFilters = new List<Regex>();
+        private static List<Regex> CompiledFilters = new List<Regex>(); // Stores the regex patterns for console filtering
 
+        // Verifies if the executable is running in a valid Minecraft server root directory
         public static void VerifyLocation()
         {
             Console.ForegroundColor = ConsoleColor.DarkGray;
             Console.WriteLine("⚙️  [SYSTEM] Verifying installation directory...");
             Console.ResetColor();
 
+            // Checks for common Minecraft server files/folders
             bool hasEula = File.Exists("eula.txt");
             bool hasServerProps = File.Exists("server.properties");
             bool hasPlugins = Directory.Exists("plugins");
             bool hasVersions = Directory.Exists("versions");
             bool hasPaper = Directory.Exists(".paper");
 
+            // If none of these exist, the user probably double-clicked the .exe in their Downloads folder
             if (!hasEula && !hasServerProps && !hasPlugins && !hasVersions && !hasPaper)
             {
                 Console.Clear();
@@ -42,27 +46,31 @@ namespace PaperAutoUpdater
             Console.ResetColor();
         }
 
+        // Compiles wildcard strings from the configuration into Regex objects for faster evaluation during server runtime
         private static void PrepareFilters()
         {
             CompiledFilters.Clear();
             foreach (var filter in ConfigManager.Config.ConsoleFilters)
             {
+                // Converts simple wildcards (*) into valid Regex (.*)
                 string regexPattern = "^" + Regex.Escape(filter).Replace("\\*", ".*") + "$";
                 CompiledFilters.Add(new Regex(regexPattern, RegexOptions.IgnoreCase | RegexOptions.Compiled));
             }
         }
 
+        // Evaluates a line of output from the Minecraft server against active filters and prints it if it doesn't match
         private static void FilterAndPrint(string? line)
         {
             if (string.IsNullOrEmpty(line)) return;
 
             foreach (var regex in CompiledFilters)
             {
-                if (regex.IsMatch(line)) return; 
+                if (regex.IsMatch(line)) return; // Line matched a filter, drop it
             }
-            Console.WriteLine(line);
+            Console.WriteLine(line); // Line is clean, print it
         }
 
+        // Deletes specified files or patterns after the server process has fully terminated
         private static void ExecutePostShutdownCleanup()
         {
             if (ConfigManager.Config.PostShutdownDeletes.Count == 0) return;
@@ -80,6 +88,7 @@ namespace PaperAutoUpdater
                     string directoryToSearch = baseDir;
                     string searchPattern = pattern;
 
+                    // Support for targeting files inside subdirectories (e.g., "logs\*.gz")
                     if (pattern.Contains("\\") || pattern.Contains("/"))
                     {
                         string normalizedPattern = pattern.Replace("/", "\\");
@@ -95,7 +104,7 @@ namespace PaperAutoUpdater
                     {
                         try
                         {
-                            if(File.Exists(file)) 
+                            if (File.Exists(file))
                             {
                                 File.Delete(file);
                                 Console.ForegroundColor = ConsoleColor.DarkYellow;
@@ -123,9 +132,10 @@ namespace PaperAutoUpdater
             Console.WriteLine("✅ [SYSTEM] Cleanup complete.\n");
             Console.ResetColor();
 
-            Thread.Sleep(2000); 
+            Thread.Sleep(2000); // Small delay to let the user see the cleanup results
         }
 
+        // Executes external programs sequentially before starting the Minecraft server
         private static void RunPreLaunchPrograms()
         {
             var programs = ConfigManager.Config.PreLaunchPrograms;
@@ -158,7 +168,7 @@ namespace PaperAutoUpdater
                     {
                         Arguments = prog.Arguments ?? "",
                         WorkingDirectory = Path.GetDirectoryName(fullPath) ?? baseDir,
-                        UseShellExecute = true
+                        UseShellExecute = true // Required to launch .bat or UI-based applications properly
                     };
 
                     Console.ForegroundColor = ConsoleColor.DarkGray;
@@ -167,7 +177,7 @@ namespace PaperAutoUpdater
 
                     using (var p = Process.Start(psi))
                     {
-                        if (p != null && prog.WaitForExit) p.WaitForExit();
+                        if (p != null && prog.WaitForExit) p.WaitForExit(); // Blocks the thread if WaitForExit is enabled
                     }
                 }
                 catch (Exception ex)
@@ -183,8 +193,10 @@ namespace PaperAutoUpdater
             Console.ResetColor();
         }
 
+        // Starts the Minecraft server Java process and handles standard I/O redirection
         public static void RunServer(string jarName = "")
         {
+            // If no specific jar was provided (e.g., auto-update is off), find the first paper jar available
             if (string.IsNullOrEmpty(jarName))
             {
                 var files = Directory.GetFiles(Directory.GetCurrentDirectory(), "paper-*.jar");
@@ -207,38 +219,68 @@ namespace PaperAutoUpdater
             Console.WriteLine($"🚀 [SYSTEM] Engine Ignited. Starting the server with {jarName}...\n");
             Console.ResetColor();
 
+            // Prepare the Java process configuration
             ProcessStartInfo psi = new ProcessStartInfo("java", $"{ConfigManager.Config.JavaArgs} -jar {jarName} nogui")
             {
-                UseShellExecute = false,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                RedirectStandardInput = true,
+                UseShellExecute = false, // Required for I/O redirection
+                RedirectStandardOutput = true, // Capture server logs
+                RedirectStandardError = true,  // Capture server errors
+                RedirectStandardInput = true,  // Allow sending commands to the server
                 CreateNoWindow = false
             };
 
-            var process = Process.Start(psi);
-            if (process == null) return;
+            Process? process;
+            try
+            {
+                process = Process.Start(psi);
+                if (process == null) return;
+            }
+            catch (Exception ex)
+            {
+                // This usually happens if Java is not installed or not in the Windows PATH
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.WriteLine($"\n❌ [FATAL ERROR] Failed to start Java.");
+                Console.WriteLine($"Is Java installed and added to the Windows PATH environment variables?");
+                Console.WriteLine($"Details: {ex.Message}");
+                Console.ResetColor();
+                Console.ReadKey();
+                return;
+            }
 
+            // Hook up the output and error streams to our filtering method asynchronously
             process.OutputDataReceived += (sender, e) => FilterAndPrint(e.Data);
             process.ErrorDataReceived += (sender, e) => FilterAndPrint(e.Data);
 
             process.BeginOutputReadLine();
             process.BeginErrorReadLine();
 
+            // Background task to read user input from the console and forward it to the server process
             Task.Run(() =>
             {
                 while (!process.HasExited)
                 {
-                    string? input = Console.ReadLine();
-                    if (!string.IsNullOrEmpty(input) && !process.HasExited)
+                    string? input = Console.ReadLine(); // Blocks waiting for user input
+                    if (!string.IsNullOrEmpty(input))
                     {
-                        process.StandardInput.WriteLine(input);
+                        try
+                        {
+                            // Garante que não tenta escrever num pipeline já fechado
+                            if (!process.HasExited)
+                            {
+                                process.StandardInput.WriteLine(input); // Send command to the Minecraft server
+                            }
+                        }
+                        catch (InvalidOperationException)
+                        {
+                            // Silencia o erro caso o processo feche exatamente durante a escrita
+                            break;
+                        }
                     }
                 }
             });
 
-            process.WaitForExit();
-            ExecutePostShutdownCleanup();
+            process.WaitForExit(); // Block the main thread until the Minecraft server shuts down
+            ExecutePostShutdownCleanup(); // Run cleanup tasks after shutdown
         }
     }
 }
