@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Threading.Tasks;
 
@@ -16,6 +16,9 @@ namespace PaperAutoUpdater
 
             // 1. Safety Verification (Location Interlock)
             Engine.VerifyLocation();
+
+            // Creates PaperLauncherLogs\ (inside the verified server folder) and starts logging
+            Logger.Init();
 
             // 2. Configuration System (Load or Setup)
             if (!File.Exists(ConfigManager.ConfigFileName))

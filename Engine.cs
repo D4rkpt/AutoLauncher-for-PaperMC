@@ -126,6 +126,63 @@ namespace PaperAutoUpdater
             Thread.Sleep(2000); 
         }
 
+        private static void RunPreLaunchPrograms()
+        {
+            var programs = ConfigManager.Config.PreLaunchPrograms;
+            if (programs == null || programs.Count == 0) return;
+
+            Console.ForegroundColor = ConsoleColor.Cyan;
+            Console.WriteLine($"🧩 [SYSTEM] Starting {programs.Count} pre-launch program(s)...");
+            Console.ResetColor();
+
+            string baseDir = Directory.GetCurrentDirectory();
+
+            foreach (var prog in programs)
+            {
+                if (string.IsNullOrWhiteSpace(prog.Path)) continue;
+
+                try
+                {
+                    // Relative paths are resolved against the server folder
+                    string fullPath = Path.IsPathRooted(prog.Path) ? prog.Path : Path.Combine(baseDir, prog.Path);
+
+                    if (!File.Exists(fullPath))
+                    {
+                        Console.ForegroundColor = ConsoleColor.Red;
+                        Console.WriteLine($"❌ [PRE-LAUNCH ERROR] File not found: {fullPath}");
+                        Console.ResetColor();
+                        continue;
+                    }
+
+                    var psi = new ProcessStartInfo(fullPath)
+                    {
+                        Arguments = prog.Arguments ?? "",
+                        WorkingDirectory = Path.GetDirectoryName(fullPath) ?? baseDir,
+                        UseShellExecute = true
+                    };
+
+                    Console.ForegroundColor = ConsoleColor.DarkGray;
+                    Console.WriteLine($"▶️  [PRE-LAUNCH] {Path.GetFileName(fullPath)} {prog.Arguments}{(prog.WaitForExit ? " (waiting for exit)" : "")}");
+                    Console.ResetColor();
+
+                    using (var p = Process.Start(psi))
+                    {
+                        if (p != null && prog.WaitForExit) p.WaitForExit();
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.ForegroundColor = ConsoleColor.Red;
+                    Console.WriteLine($"❌ [PRE-LAUNCH ERROR] Could not start '{prog.Path}': {ex.Message}");
+                    Console.ResetColor();
+                }
+            }
+
+            Console.ForegroundColor = ConsoleColor.Green;
+            Console.WriteLine("✅ [SYSTEM] Pre-launch programs done.\n");
+            Console.ResetColor();
+        }
+
         public static void RunServer(string jarName = "")
         {
             if (string.IsNullOrEmpty(jarName))
@@ -144,6 +201,7 @@ namespace PaperAutoUpdater
             }
 
             PrepareFilters();
+            RunPreLaunchPrograms();
 
             Console.ForegroundColor = ConsoleColor.Green;
             Console.WriteLine($"🚀 [SYSTEM] Engine Ignited. Starting the server with {jarName}...\n");

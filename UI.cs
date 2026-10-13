@@ -7,6 +7,8 @@ namespace PaperAutoUpdater
     {
         public static void PrintHeader()
         {
+            bool wasPaused = Logger.Paused;
+            Logger.Paused = true; // banner art is not useful in the log
             Console.Clear();
             Console.ForegroundColor = ConsoleColor.Cyan;
             Console.WriteLine(new string('═', 75));
@@ -18,6 +20,7 @@ namespace PaperAutoUpdater
             Console.WriteLine(@"           |_|                                                             ");
             Console.WriteLine(new string('═', 75));
             Console.ResetColor();
+            Logger.Paused = wasPaused;
         }
 
         public static void RunSetupWizard()
@@ -115,6 +118,7 @@ namespace PaperAutoUpdater
             Console.WriteLine($"⚙️  [CONFIG] Auto-Update: {(ConfigManager.Config.AutoUpdate ? "ON" : "OFF")}");
             Console.WriteLine($"⚙️  [CONFIG] Boot Delay: {ConfigManager.Config.BootDelaySeconds} second(s)");
             Console.WriteLine($"⚙️  [CONFIG] Active Filters: {ConfigManager.Config.ConsoleFilters.Count}");
+            Console.WriteLine($"⚙️  [CONFIG] Pre-Launch Programs: {ConfigManager.Config.PreLaunchPrograms.Count}");
             Console.WriteLine($"⚙️  [CONFIG] Cleanup Files: {ConfigManager.Config.PostShutdownDeletes.Count}");
             Console.WriteLine($"⚙️  [CONFIG] Java Args: {ConfigManager.Config.JavaArgs.Substring(0, Math.Min(ConfigManager.Config.JavaArgs.Length, 40))}...\n");
             Console.ResetColor();
@@ -161,6 +165,9 @@ namespace PaperAutoUpdater
 
         public static void OpenConfigurationMenu()
         {
+            Logger.LogEvent("Configuration menu opened.");
+            Logger.Paused = true; // menu screens are not logged
+
             while (true)
             {
                 Console.Clear();
@@ -178,11 +185,12 @@ namespace PaperAutoUpdater
                 Console.WriteLine("  4. ☕ Edit Java Arguments & RAM");
                 Console.WriteLine($"  5. 🛡️ Manage Console Filters ({ConfigManager.Config.ConsoleFilters.Count} active)");
                 Console.WriteLine($"  6. 🧹 Manage Post-Shutdown File Cleanup ({ConfigManager.Config.PostShutdownDeletes.Count} active)");
-                Console.WriteLine("  7. 🚀 Launch Server");
-                Console.WriteLine("  8. ❌ Exit Launcher");
+                Console.WriteLine($"  7. 🧩 Manage Pre-Launch Programs ({ConfigManager.Config.PreLaunchPrograms.Count} active)");
+                Console.WriteLine("  8. 🚀 Launch Server");
+                Console.WriteLine("  9. ❌ Exit Launcher");
 
                 Console.ForegroundColor = ConsoleColor.Cyan;
-                Console.Write("\n👉 Select an option (1-8): ");
+                Console.Write("\n👉 Select an option (1-9): ");
                 Console.ResetColor();
 
                 var key = Console.ReadKey(intercept: true).KeyChar;
@@ -349,17 +357,172 @@ namespace PaperAutoUpdater
                         break;
 
                     case '7':
+                        ManagePreLaunchMenu();
+                        break;
+
+                    case '8':
+                        Logger.Paused = false;
+                        Logger.LogEvent("Configuration menu closed. Launching server.");
                         Console.Clear();
                         Thread.Sleep(100);
                         PrintHeader();
                         Updater.RunUpdateAndLaunchSequence().GetAwaiter().GetResult();
                         return;
 
-                    case '8':
+                    case '9':
                         Environment.Exit(0);
                         break;
                 }
             }
+        }
+
+        static void ManagePreLaunchMenu()
+        {
+            var list = ConfigManager.Config.PreLaunchPrograms;
+            int sel = 0;
+            bool moving = false;
+
+            while (true)
+            {
+                if (sel >= list.Count) sel = Math.Max(0, list.Count - 1);
+
+                Console.Clear();
+                PrintHeader();
+
+                Console.ForegroundColor = ConsoleColor.Yellow;
+                Console.WriteLine("\n=== 🧩 PRE-LAUNCH PROGRAMS ===");
+                Console.ResetColor();
+                Console.WriteLine("Programs (.exe, .bat, ...) started in order, right before the server boots.\n");
+
+                if (list.Count == 0)
+                {
+                    Console.ForegroundColor = ConsoleColor.DarkGray;
+                    Console.WriteLine("   (No programs added)");
+                    Console.ResetColor();
+                }
+                else
+                {
+                    for (int i = 0; i < list.Count; i++)
+                    {
+                        string args = string.IsNullOrWhiteSpace(list[i].Arguments) ? "" : " " + list[i].Arguments;
+                        string wait = list[i].WaitForExit ? "  [wait]" : "";
+                        string prefix = i == sel ? (moving ? " ⇅ " : " ▶ ") : "   ";
+
+                        if (i == sel) Console.ForegroundColor = moving ? ConsoleColor.Yellow : ConsoleColor.Green;
+                        Console.WriteLine($"{prefix}{i + 1}. {list[i].Path}{args}{wait}");
+                        Console.ResetColor();
+                    }
+                }
+
+                Console.WriteLine("\n----------------------");
+                Console.ForegroundColor = ConsoleColor.Cyan;
+                if (moving)
+                {
+                    Console.WriteLine("  ↑/↓ : move the selected program   |   Enter/Esc : confirm position");
+                }
+                else
+                {
+                    Console.WriteLine("  ↑/↓ : select   |   Enter : move mode   |   A : add");
+                    Console.WriteLine("  R/Del : remove   |   W : toggle wait-for-exit   |   Esc : back");
+                }
+                Console.ResetColor();
+
+                var key = Console.ReadKey(intercept: true).Key;
+
+                if (moving)
+                {
+                    if (key == ConsoleKey.UpArrow && sel > 0)
+                    {
+                        (list[sel - 1], list[sel]) = (list[sel], list[sel - 1]);
+                        sel--;
+                        ConfigManager.SaveConfigInstant();
+                    }
+                    else if (key == ConsoleKey.DownArrow && sel < list.Count - 1)
+                    {
+                        (list[sel + 1], list[sel]) = (list[sel], list[sel + 1]);
+                        sel++;
+                        ConfigManager.SaveConfigInstant();
+                    }
+                    else if (key == ConsoleKey.Enter || key == ConsoleKey.Escape)
+                    {
+                        moving = false;
+                    }
+                    continue;
+                }
+
+                switch (key)
+                {
+                    case ConsoleKey.UpArrow:
+                        if (sel > 0) sel--;
+                        break;
+
+                    case ConsoleKey.DownArrow:
+                        if (sel < list.Count - 1) sel++;
+                        break;
+
+                    case ConsoleKey.Enter:
+                        if (list.Count > 0) moving = true;
+                        break;
+
+                    case ConsoleKey.A:
+                        AddPreLaunchProgram(list);
+                        if (list.Count > 0) sel = list.Count - 1;
+                        break;
+
+                    case ConsoleKey.R:
+                    case ConsoleKey.Delete:
+                        if (list.Count > 0)
+                        {
+                            list.RemoveAt(sel);
+                            ConfigManager.SaveConfigInstant();
+                        }
+                        break;
+
+                    case ConsoleKey.W:
+                        if (list.Count > 0)
+                        {
+                            list[sel].WaitForExit = !list[sel].WaitForExit;
+                            ConfigManager.SaveConfigInstant();
+                        }
+                        break;
+
+                    case ConsoleKey.Escape:
+                    case ConsoleKey.Backspace:
+                        return;
+                }
+            }
+        }
+
+        static void AddPreLaunchProgram(System.Collections.Generic.List<PreLaunchProgram> list)
+        {
+            Console.ForegroundColor = ConsoleColor.Green;
+            Console.WriteLine("\n[ ADD PRE-LAUNCH PROGRAM ]");
+            Console.ResetColor();
+            Console.WriteLine("Full path (or relative to the server folder). You can drag & drop the file here.");
+            Console.Write("\nPath: ");
+            string? path = Console.ReadLine()?.Trim().Trim('"');
+            if (string.IsNullOrWhiteSpace(path)) return;
+
+            string full = System.IO.Path.IsPathRooted(path) ? path : System.IO.Path.Combine(System.IO.Directory.GetCurrentDirectory(), path);
+            if (!System.IO.File.Exists(full))
+            {
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.WriteLine($"\n❌ [ERROR] File not found: {full}");
+                Console.WriteLine("\nPress any key to continue...");
+                Console.ResetColor();
+                Console.ReadKey(intercept: true);
+                return;
+            }
+
+            Console.Write("Arguments (optional, Enter to skip): ");
+            string args = Console.ReadLine()?.Trim() ?? "";
+
+            Console.Write("Wait for it to exit before continuing? (Y/N): ");
+            bool wait = Console.ReadKey().Key == ConsoleKey.Y;
+            Console.WriteLine();
+
+            list.Add(new PreLaunchProgram { Path = path, Arguments = args, WaitForExit = wait });
+            ConfigManager.SaveConfigInstant();
         }
 
         static void ManageFiltersMenu()

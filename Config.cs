@@ -5,6 +5,15 @@ using System.Text.Json;
 
 namespace PaperAutoUpdater
 {
+    // A program (.exe, .bat, .cmd, ...) started before the server boots
+    public class PreLaunchProgram
+    {
+        public string Path { get; set; } = "";
+        public string Arguments { get; set; } = "";
+        // true = wait for the program to exit before continuing; false = start it and move on
+        public bool WaitForExit { get; set; } = false;
+    }
+
     // Configuration class loaded directly into RAM for ultra-fast read/write operations
     public class LauncherConfig
     {
@@ -15,6 +24,9 @@ namespace PaperAutoUpdater
 
         // List of active console filters
         public List<string> ConsoleFilters { get; set; } = new List<string>();
+
+        // Programs started (in order) right before the server launches
+        public List<PreLaunchProgram> PreLaunchPrograms { get; set; } = new List<PreLaunchProgram>();
 
         // List of files/patterns to delete after the server shuts down
         public List<string> PostShutdownDeletes { get; set; } = new List<string>();
