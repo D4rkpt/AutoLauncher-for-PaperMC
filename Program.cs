@@ -16,22 +16,29 @@ namespace PaperAutoUpdater
             UI.PrintHeader(); // Displays the ASCII art banner
 
             // 1. Safety Verification (Location Interlock)
-            // Ensures the executable is in the correct directory before proceeding to avoid dumping files everywhere
+            // Verifies the directory files to ensure it's a valid server environment
             Engine.VerifyLocation();
 
-            // Creates PaperLauncherLogs\ (inside the verified server folder) and starts logging standard output
-            Logger.Init();
+            // Load the configuration FIRST to check if logs are enabled
+            bool isFirstRun = !File.Exists(ConfigManager.ConfigFileName);
+            if (!isFirstRun)
+            {
+                ConfigManager.LoadConfig();
+            }
 
-            // 2. Configuration System (Load or Setup)
-            // If the configuration file is missing, trigger the first-time setup wizard
-            if (!File.Exists(ConfigManager.ConfigFileName))
+            // Start the logging system ONLY if enabled in the config
+            if (ConfigManager.Config.EnableLogs)
+            {
+                Logger.Init();
+            }
+
+            // Proceed with the setup wizard or update checks
+            if (isFirstRun)
             {
                 UI.RunSetupWizard();
             }
             else
             {
-                // Load existing settings into memory
-                ConfigManager.LoadConfig();
                 await Updater.CheckForLauncherUpdatesAsync();
             }
 

@@ -92,7 +92,7 @@ namespace PaperAutoUpdater
             {
                 ConfigManager.Config.TargetVersion = detectedVersion; // Locks target to detected version
                 Console.ForegroundColor = ConsoleColor.Cyan;
-                Console.WriteLine($"\\n🌐 [SETUP WIZARD] Automatically detected currently installed version: {detectedVersion}.");
+                Console.WriteLine($"\n🌐 [SETUP WIZARD] Automatically detected currently installed version: {detectedVersion}.");
                 Console.ResetColor();
             }
             else
@@ -100,12 +100,12 @@ namespace PaperAutoUpdater
                 // Fallback to a common recent version if the folder is completely empty/fresh
                 ConfigManager.Config.TargetVersion = "1.21.1";
                 Console.ForegroundColor = ConsoleColor.Yellow;
-                Console.WriteLine("\\n⚠️  [SETUP WIZARD] No existing version detected. Defaulting Target Version to 1.21.1.");
+                Console.WriteLine("\n⚠️  [SETUP WIZARD] No existing version detected. Defaulting Target Version to 1.21.1.");
                 Console.ResetColor();
             }
 
             Console.ForegroundColor = ConsoleColor.Green;
-            Console.WriteLine("\\n✅ [SETUP WIZARD] Initial configuration is complete. All systems nominal.");
+            Console.WriteLine("\n✅ [SETUP WIZARD] Initial configuration is complete. All systems nominal.");
             Console.ResetColor();
 
             ConfigManager.SaveConfigInstant(); // Save the wizard choices immediately
@@ -121,6 +121,7 @@ namespace PaperAutoUpdater
             Console.ForegroundColor = ConsoleColor.DarkGray;
             Console.WriteLine($"⚙️  [CONFIG] Target Version: {ConfigManager.Config.TargetVersion}");
             Console.WriteLine($"⚙️  [CONFIG] Auto-Update: {(ConfigManager.Config.AutoUpdate ? "ON" : "OFF")}");
+            Console.WriteLine($"⚙️  [CONFIG] Logs: {(ConfigManager.Config.EnableLogs ? "ON" : "OFF")}");
             Console.WriteLine($"⚙️  [CONFIG] Boot Delay: {ConfigManager.Config.BootDelaySeconds} second(s)");
             Console.WriteLine($"⚙️  [CONFIG] Active Filters: {ConfigManager.Config.ConsoleFilters.Count}");
             Console.WriteLine($"⚙️  [CONFIG] Pre-Launch Programs: {ConfigManager.Config.PreLaunchPrograms.Count}");
@@ -187,11 +188,11 @@ namespace PaperAutoUpdater
                 Console.WriteLine("╚═════════════════════════════════════════════════════════════╝");
                 Console.ResetColor();
 
-                // Dynamic menu items displaying current state
-                Console.WriteLine($"  1. 🎯 Change Target Version (Current: {ConfigManager.Config.TargetVersion})");
-                Console.WriteLine($"  2. 🔄 Toggle Auto-Update (Current: {(ConfigManager.Config.AutoUpdate ? "ON" : "OFF")})");
+                Console.WriteLine($"  0. 🎯 Change Target Version (Current: {ConfigManager.Config.TargetVersion})");
+                Console.WriteLine($"  1. 🔄 Toggle Auto-Update (Current: {(ConfigManager.Config.AutoUpdate ? "ON" : "OFF")})");
+                Console.WriteLine($"  2. 📝 Toggle Logs (Current: {(ConfigManager.Config.EnableLogs ? "ON" : "OFF")})");
                 Console.WriteLine($"  3. ⏱️ Change Boot Delay  (Current: {ConfigManager.Config.BootDelaySeconds}s)");
-                Console.WriteLine("  4. ☕ Edit Java Arguments & RAM");
+                Console.WriteLine($"  4. ☕ Edit Java Arguments & Profile (Current: {ConfigManager.Config.JavaProfile})");
                 Console.WriteLine($"  5. 🛡️ Manage Console Filters ({ConfigManager.Config.ConsoleFilters.Count} active)");
                 Console.WriteLine($"  6. 🧹 Manage Post-Shutdown File Cleanup ({ConfigManager.Config.PostShutdownDeletes.Count} active)");
                 Console.WriteLine($"  7. 🧩 Manage Pre-Launch Programs ({ConfigManager.Config.PreLaunchPrograms.Count} active)");
@@ -199,14 +200,14 @@ namespace PaperAutoUpdater
                 Console.WriteLine("  9. ❌ Exit Launcher");
 
                 Console.ForegroundColor = ConsoleColor.Cyan;
-                Console.Write("\n👉 Select an option (1-9): ");
+                Console.Write("\n👉 Select an option (0-9): ");
                 Console.ResetColor();
 
                 var key = Console.ReadKey(intercept: true).KeyChar;
 
                 switch (key)
                 {
-                    case '1':
+                    case '0':
                         // Handles Minecraft version targeting with downgrade/upgrade safety checks
                         Console.Clear();
                         PrintHeader();
@@ -221,7 +222,7 @@ namespace PaperAutoUpdater
 
                         if (string.IsNullOrWhiteSpace(inputVersion)) break;
 
-                        // Removed the 'recent' logic block completely. Straight to validation.
+                        // Proceed straight to validation
                         {
                             Console.ForegroundColor = ConsoleColor.Cyan;
                             Console.WriteLine($"\n🌐 [NETWORK] Validating version '{inputVersion}' with PaperMC API...");
@@ -303,10 +304,22 @@ namespace PaperAutoUpdater
                         }
                         break;
 
-                    case '2':
+                    case '1':
                         // Simple toggle for the auto-update flag
                         ConfigManager.Config.AutoUpdate = !ConfigManager.Config.AutoUpdate;
                         ConfigManager.SaveConfigInstant();
+                        break;
+
+                    case '2':
+                        // Invert the boolean and save instantly to disk
+                        ConfigManager.Config.EnableLogs = !ConfigManager.Config.EnableLogs;
+                        ConfigManager.SaveConfigInstant();
+
+                        // If logs were enabled for the first time this session, start the logging stream
+                        if (ConfigManager.Config.EnableLogs && !Logger.IsInitialized)
+                        {
+                            Logger.Init();
+                        }
                         break;
 
                     case '3':
@@ -343,22 +356,7 @@ namespace PaperAutoUpdater
                         break;
 
                     case '4':
-                        // Modify JVM parameters
-                        Console.Clear();
-                        PrintHeader();
-                        Console.ForegroundColor = ConsoleColor.Yellow;
-                        Console.WriteLine("\n=== ☕ EDIT JAVA ARGUMENTS ===");
-                        Console.ResetColor();
-                        Console.WriteLine("Current: " + ConfigManager.Config.JavaArgs);
-                        Console.WriteLine("\nEnter new arguments (or press Enter to cancel):");
-                        Console.Write("> ");
-                        string? newArgs = Console.ReadLine();
-                        if (!string.IsNullOrWhiteSpace(newArgs))
-                        {
-                            ConfigManager.Config.JavaArgs = newArgs;
-                            ConfigManager.SaveConfigInstant();
-                        }
-                        Thread.Sleep(1000);
+                        ManageJavaArgsMenu(); // Open sub-menu for JVM GC profiles and custom arguments
                         break;
 
                     case '5':
@@ -387,6 +385,74 @@ namespace PaperAutoUpdater
                         // Abort entirely
                         Environment.Exit(0);
                         break;
+                }
+            }
+        }
+
+        // Sub-menu to switch between predefined JVM Garbage Collection profiles or input custom flags
+        static void ManageJavaArgsMenu()
+        {
+            while (true)
+            {
+                Console.Clear();
+                PrintHeader();
+
+                Console.ForegroundColor = ConsoleColor.Yellow;
+                Console.WriteLine("\n=== ☕ JAVA ARGUMENTS & GC PROFILES ===");
+                Console.ResetColor();
+                Console.WriteLine($"Active Profile : {ConfigManager.Config.JavaProfile}");
+                Console.WriteLine($"Current Args   : {ConfigManager.Config.JavaArgs}\n");
+
+                Console.WriteLine("Select a Garbage Collection Profile:");
+                Console.WriteLine("  1. ⚖️ Aikar (G1GC - Balanced)      [Standard recommended flags]");
+                Console.WriteLine("  2. ⚡ ZGC (High Performance)       [Ideal for +12GB RAM & Multi-Core CPUs]");
+                Console.WriteLine("  3. 🪶 Low Memory                   [Conservative allocation for weaker PCs]");
+                Console.WriteLine("  4. 🛠️ Custom                       [Manually type your own JVM flags]");
+                Console.WriteLine("  5. 🔙 Back to Main Menu");
+
+                Console.ForegroundColor = ConsoleColor.Cyan;
+                Console.Write("\n👉 Select an option (1-5): ");
+                Console.ResetColor();
+
+                var key = Console.ReadKey(intercept: true).KeyChar;
+
+                switch (key)
+                {
+                    case '1':
+                        ConfigManager.Config.JavaProfile = "Aikar (G1GC - Balanced)";
+                        ConfigManager.Config.JavaArgs = JavaProfiles.AikarFlags;
+                        ConfigManager.SaveConfigInstant();
+                        break;
+
+                    case '2':
+                        ConfigManager.Config.JavaProfile = "ZGC (High Performance)";
+                        ConfigManager.Config.JavaArgs = JavaProfiles.ZgcFlags;
+                        ConfigManager.SaveConfigInstant();
+                        break;
+
+                    case '3':
+                        ConfigManager.Config.JavaProfile = "Low Memory";
+                        ConfigManager.Config.JavaArgs = JavaProfiles.LowMemoryFlags;
+                        ConfigManager.SaveConfigInstant();
+                        break;
+
+                    case '4':
+                        Console.ForegroundColor = ConsoleColor.Green;
+                        Console.WriteLine("\n\n[ CUSTOM JAVA ARGUMENTS ]");
+                        Console.ResetColor();
+                        Console.WriteLine("Enter your custom Java arguments (or press Enter to cancel):");
+                        Console.Write("> ");
+                        string? newArgs = Console.ReadLine()?.Trim();
+                        if (!string.IsNullOrWhiteSpace(newArgs))
+                        {
+                            ConfigManager.Config.JavaProfile = "Custom";
+                            ConfigManager.Config.JavaArgs = newArgs;
+                            ConfigManager.SaveConfigInstant();
+                        }
+                        break;
+
+                    case '5':
+                        return;
                 }
             }
         }

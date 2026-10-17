@@ -20,9 +20,14 @@ namespace PaperAutoUpdater
     {
         public string TargetVersion { get; set; } = "";
         public bool AutoUpdate { get; set; } = true;
+        public bool EnableLogs { get; set; } = true;
         public int BootDelaySeconds { get; set; } = 5; // Countdown before launch, gives time to interrupt via UI
+
+        // Active JVM Garbage Collection profile name
+        public string JavaProfile { get; set; } = "Aikar (G1GC - Balanced)";
+
         // Default flags optimize garbage collection (G1GC) for Minecraft servers
-        public string JavaArgs { get; set; } = "-Xms16384M -Xmx16384M -XX:+DisableExplicitGC -XX:+ParallelRefProcEnabled -XX:+PerfDisableSharedMem -XX:+UnlockExperimentalVMOptions -XX:+UseG1GC -XX:G1HeapRegionSize=8M -XX:G1HeapWastePercent=5 -XX:G1MaxNewSizePercent=40 -XX:G1MixedGCCountTarget=4 -XX:G1MixedGCLiveThresholdPercent=90 -XX:G1NewSizePercent=30 -XX:G1RSetUpdatingPauseTimePercent=5 -XX:G1ReservePercent=20 -XX:InitiatingHeapOccupancyPercent=15 -XX:MaxGCPauseMillis=200 -XX:MaxTenuringThreshold=1 -XX:SurvivorRatio=32 -Dusing.aikars.flags=https://mcflags.emc.gs -Dlog4j2.configurationFile=log4j2.xml -Daikars.new.flags=true";
+        public string JavaArgs { get; set; } = JavaProfiles.AikarFlags;
 
         // List of active console filters (wildcards matching lines to hide from output)
         public List<string> ConsoleFilters { get; set; } = new List<string>();
@@ -32,6 +37,16 @@ namespace PaperAutoUpdater
 
         // List of files/patterns to delete automatically after the server shuts down
         public List<string> PostShutdownDeletes { get; set; } = new List<string>();
+    }
+
+    // Predefined JVM Garbage Collection profiles for different hardware tiers
+    public static class JavaProfiles
+    {
+        public const string AikarFlags = "-Xms16384M -Xmx16384M -XX:+DisableExplicitGC -XX:+ParallelRefProcEnabled -XX:+PerfDisableSharedMem -XX:+UnlockExperimentalVMOptions -XX:+UseG1GC -XX:G1HeapRegionSize=8M -XX:G1HeapWastePercent=5 -XX:G1MaxNewSizePercent=40 -XX:G1MixedGCCountTarget=4 -XX:G1MixedGCLiveThresholdPercent=90 -XX:G1NewSizePercent=30 -XX:G1RSetUpdatingPauseTimePercent=5 -XX:G1ReservePercent=20 -XX:InitiatingHeapOccupancyPercent=15 -XX:MaxGCPauseMillis=200 -XX:MaxTenuringThreshold=1 -XX:SurvivorRatio=32 -Dusing.aikars.flags=https://mcflags.emc.gs -Dlog4j2.configurationFile=log4j2.xml -Daikars.new.flags=true";
+
+        public const string ZgcFlags = "-Xms16384M -Xmx16384M -XX:+UnlockExperimentalVMOptions -XX:+UseZGC -XX:+ZGenerational -XX:+DisableExplicitGC -XX:+AlwaysPreTouch -XX:+PerfDisableSharedMem -Dlog4j2.configurationFile=log4j2.xml";
+
+        public const string LowMemoryFlags = "-Xms4096M -Xmx4096M -XX:+UseG1GC -XX:+ParallelRefProcEnabled -XX:MaxGCPauseMillis=150 -XX:+UnlockExperimentalVMOptions -XX:+DisableExplicitGC -XX:G1NewSizePercent=20 -XX:G1ReservePercent=15 -XX:G1HeapRegionSize=4M -XX:G1MixedGCCountTarget=4 -XX:InitiatingHeapOccupancyPercent=20 -Dlog4j2.configurationFile=log4j2.xml";
     }
 
     // Handles serialization and deserialization of the LauncherConfig object
@@ -51,7 +66,6 @@ namespace PaperAutoUpdater
                 string json = File.ReadAllText(ConfigFileName);
                 Config = JsonSerializer.Deserialize<LauncherConfig>(json) ?? new LauncherConfig();
                 Console.ForegroundColor = ConsoleColor.DarkGray;
-                Console.WriteLine("⚙️  [SYSTEM] Configuration loaded into RAM.");
                 Console.ResetColor();
             }
             catch (Exception ex)

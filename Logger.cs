@@ -17,10 +17,12 @@ namespace PaperAutoUpdater
 
         // While true (header art, settings menus) console text is NOT written to the log
         public static bool Paused { get; set; }
+        public static bool IsInitialized { get; private set; } = false;
 
         // Initializes the logging system, creates the directory, and hooks into standard output
         public static void Init()
         {
+            if (IsInitialized) return;
             try
             {
                 string dir = Path.Combine(Directory.GetCurrentDirectory(), LogFolderName);
@@ -36,6 +38,7 @@ namespace PaperAutoUpdater
 
                 // Tee: console keeps working exactly as before, and every line is also logged
                 Console.SetOut(new TeeWriter(Console.Out));
+                IsInitialized = true;
             }
             catch (Exception ex)
             {
@@ -60,7 +63,7 @@ namespace PaperAutoUpdater
                     {
                         File.Delete(f);
                     }
-                    catch { /* Ignora se o ficheiro estiver trancado por outro programa */ }
+                    catch { /* Ignore if the file is locked by another process */ }
                 }
             }
             catch { }
@@ -69,6 +72,7 @@ namespace PaperAutoUpdater
         // Writes a line directly to the log file, even if logging is currently Paused (e.g., for system events)
         public static void LogEvent(string text)
         {
+            if (!ConfigManager.Config.EnableLogs) return;
             lock (Lock)
             {
                 try { _writer?.WriteLine($"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] {text}"); } catch { }
@@ -78,7 +82,7 @@ namespace PaperAutoUpdater
         // Buffers characters until a full line is formed, then writes the line to the log file
         internal static void FeedString(string text)
         {
-            if (_writer == null) return;
+            if (_writer == null || !ConfigManager.Config.EnableLogs) return;
 
             lock (Lock)
             {

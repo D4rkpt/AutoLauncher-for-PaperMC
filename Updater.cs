@@ -43,7 +43,7 @@ namespace PaperAutoUpdater
             if (ConfigManager.Config.AutoUpdate)
             {
                 Console.ForegroundColor = ConsoleColor.Cyan;
-                Console.WriteLine($"🌐 [INFO] Minecraft version detected: {mcVersion}. Checking for updates...");
+                Console.WriteLine($"🌐 [INFO] Minecraft version: {mcVersion}. Checking for updates...");
                 Console.ResetColor();
 
                 // We ignore the 'channel' return here because auto-update acts instantly without asking.
@@ -119,7 +119,6 @@ namespace PaperAutoUpdater
         // Attempts to extract the exact installed Minecraft version from Paper's internal history file
         private static string? GetVersionFromPaperHistory()
         {
-            // ... (keep internal logic unchanged)
             string historyPath = Path.Combine(Directory.GetCurrentDirectory(), ".paper", "version_history.json");
             if (File.Exists(historyPath))
             {
@@ -184,21 +183,21 @@ namespace PaperAutoUpdater
         {
             try
             {
-                // Revertemos para a tua API original (fill.papermc.io/v3) que tem as tuas versões customizadas (ex: 26.2, 26.3)
+                // Fallback to the original API (fill.papermc.io/v3) which uses custom versions (e.g., 26.2, 26.3)
                 string apiUrl = $"https://fill.papermc.io/v3/projects/paper/versions/{version}/builds";
 
-                // Usamos GetAsync para capturar a resposta HTTP. Se der 404 ou 410, ele não dá 'crash'.
+                // Use GetAsync to capture the HTTP response. Fails gracefully on 404/410.
                 using var response = await SharedClient.GetAsync(apiUrl);
 
                 if (!response.IsSuccessStatusCode)
                 {
-                    return (-1, null, "ERROR"); // Falha silenciosamente. A UI trata de mostrar a mensagem bonita de erro.
+                    return (-1, null, "ERROR"); // Fails silently. The UI handles displaying the formatted error message.
                 }
 
                 string json = await response.Content.ReadAsStringAsync();
                 using JsonDocument doc = JsonDocument.Parse(json);
 
-                // A estrutura JSON da tua API V3 devolve a array diretamente na Root Element
+                // The V3 API returns the array directly in the Root Element
                 var builds = doc.RootElement.EnumerateArray();
 
                 int highestBuild = -1;
@@ -208,14 +207,14 @@ namespace PaperAutoUpdater
                 // Iterates through all builds to find the latest one (highest ID)
                 foreach (var build in builds)
                 {
-                    // A tua API usa "id" para a build e não "build"
+                    // The API uses "id" instead of "build"
                     int currentBuild = build.GetProperty("id").GetInt32();
                     if (currentBuild > highestBuild)
                     {
                         highestBuild = currentBuild;
                         latestChannel = build.GetProperty("channel").GetString()?.ToUpper() ?? "UNKNOWN";
 
-                        // A tua API devolve o link de download formatado desta maneira específica
+                        // The API returns the formatted download link in this exact structure
                         bestDownloadUrl = build.GetProperty("downloads")
                                                .GetProperty("server:default")
                                                .GetProperty("url")
@@ -226,7 +225,7 @@ namespace PaperAutoUpdater
             }
             catch (Exception ex)
             {
-                // Apenas dispara este erro vermelho em caso de falha de parsing JSON grave ou se a tua internet for a baixo
+                // Only trigger a red error for severe JSON parsing failures or total network loss
                 Console.ForegroundColor = ConsoleColor.Red;
                 Console.WriteLine($"❌ [SYSTEM ERROR] API Parsing failed: {ex.Message}");
                 Console.ResetColor();
@@ -256,14 +255,14 @@ namespace PaperAutoUpdater
                     string json = await response.Content.ReadAsStringAsync();
                     using JsonDocument doc = JsonDocument.Parse(json);
 
-                    // Extrai a tag da versão mais recente no GitHub (remove o "v" se usares "v2.2" nas tuas releases)
+                    // Extract the latest GitHub tag (removing the "v" prefix if present)
                     string? latestTag = doc.RootElement.GetProperty("tag_name").GetString();
                     string latestVersion = latestTag?.Replace("v", "") ?? "";
 
-                    // A tua versão atual programada
-                    string currentVersion = "2.2.1";
+                    // Your current hardcoded launcher version
+                    string currentVersion = "2.3.0";
 
-                    // Se a versão for diferente da atual, avisa o utilizador
+                    // Notify the user if the versions do not match
                     if (!string.IsNullOrEmpty(latestVersion) && latestVersion != currentVersion)
                     {
                         Console.ForegroundColor = ConsoleColor.Magenta;
@@ -272,14 +271,14 @@ namespace PaperAutoUpdater
                         Console.WriteLine($"✨ Download here: https://github.com/D4rkpt/AutoLauncher-for-PaperMC/releases/latest\n");
                         Console.ResetColor();
 
-                        // Dá 4 segundos para o utilizador conseguir ler a mensagem antes de o servidor arrancar
+                        // Allow the user 4 seconds to read the update message before boot
                         await Task.Delay(4000);
                     }
                 }
             }
             catch
             {
-                // Falha silenciosamente se o utilizador estiver sem internet, para não interromper o arranque
+                // Fail silently if offline so it doesn't interrupt the boot sequence
             }
         }
     }
